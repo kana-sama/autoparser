@@ -53,10 +53,7 @@ pub enum Expr {
 pub mod expr {
     use super::*;
 
-    #[apply(node)]
-    pub struct Ident {
-        pub name: Token!["ident"],
-    }
+    pub type Ident = Token!["ident"];
 
     #[apply(node)]
     pub struct Variant {
@@ -120,6 +117,7 @@ pub mod expr {
         pub value: Box<Expr>,
         pub of: Token!["of"],
         pub arms: Separated<case::Arm, Token![";"]>,
+        pub end: Token!["end"],
     }
 
     pub mod case {
@@ -153,15 +151,9 @@ pub enum Pat {
 pub mod pat {
     use super::*;
 
-    #[apply(node)]
-    pub struct Wildcard {
-        pub token: Token!["_"],
-    }
+    pub type Wildcard = Token!["_"];
 
-    #[apply(node)]
-    pub struct Ident {
-        pub name: Token!["ident"],
-    }
+    pub type Ident = Token!["ident"];
 
     #[apply(node)]
     pub struct Variant {
@@ -191,10 +183,7 @@ pub enum Type {
 pub mod r#type {
     use super::*;
 
-    #[apply(node)]
-    pub struct Ident {
-        pub name: Token!["ident"],
-    }
+    pub type Ident = Token!["ident"];
 
     #[apply(node)]
     pub struct Enum {
