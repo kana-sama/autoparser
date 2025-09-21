@@ -111,13 +111,16 @@ impl<'tok> Parser<'tok> {
     }
 }
 
+pub type Follow = ExpectedTokens;
+pub type First = ExpectedTokens;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Follow {
+pub struct ExpectedTokens {
     pub tokens: Vec<SomeTokenKind>,
     pub can_be_empty: bool,
 }
 
-impl Follow {
+impl ExpectedTokens {
     pub fn eof() -> Self {
         Follow {
             tokens: vec![SomeTokenKind::EOF],
@@ -125,10 +128,11 @@ impl Follow {
         }
     }
 
-    pub fn join(&self, other: &Follow) -> Follow {
+    pub fn join(&self, other: impl FnOnce() -> Follow) -> Follow {
         let mut follow = self.clone();
 
         if follow.can_be_empty {
+            let other = other();
             follow.tokens.extend(other.tokens.clone());
             follow.can_be_empty = other.can_be_empty;
         }
@@ -138,17 +142,8 @@ impl Follow {
 }
 
 pub trait Parse: Sized {
-    const FIRST: &[SomeTokenKind];
-    const CAN_BE_EMPTY: bool;
-
+    fn first() -> First;
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError>;
-
-    fn first_as_follow() -> Follow {
-        Follow {
-            tokens: Self::FIRST.to_vec(),
-            can_be_empty: Self::CAN_BE_EMPTY,
-        }
-    }
 }
 
 impl<K: Clone + 'static> Parse for TokenStruct<K>
@@ -156,8 +151,12 @@ where
     TokenStruct<K>: TokenTrait,
     for<'a> &'a TokenStruct<K>: TryFrom<&'a SomeToken>,
 {
-    const FIRST: &[SomeTokenKind] = &[TokenStruct::<K>::KIND];
-    const CAN_BE_EMPTY: bool = false;
+    fn first() -> First {
+        First {
+            tokens: vec![TokenStruct::<K>::KIND],
+            can_be_empty: false,
+        }
+    }
 
     fn parse(parser: &mut Parser, _follow: &Follow) -> Result<Self, ParseError> {
         let token = parser.take::<Self>()?;
@@ -166,11 +165,15 @@ where
 }
 
 impl<T: Parse> Parse for Option<T> {
-    const FIRST: &[SomeTokenKind] = T::FIRST;
-    const CAN_BE_EMPTY: bool = true;
+    fn first() -> First {
+        First {
+            tokens: T::first().tokens,
+            can_be_empty: true,
+        }
+    }
 
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
-        let node = if parser.peek_one_of(Self::FIRST).is_some() {
+        let node = if parser.peek_one_of(&Self::first().tokens).is_some() {
             Some(T::parse(parser, follow)?)
         } else {
             None
@@ -181,14 +184,18 @@ impl<T: Parse> Parse for Option<T> {
 }
 
 impl<T: Parse> Parse for Vec<T> {
-    const FIRST: &[SomeTokenKind] = T::FIRST;
-    const CAN_BE_EMPTY: bool = true;
+    fn first() -> First {
+        First {
+            tokens: T::first().tokens,
+            can_be_empty: true,
+        }
+    }
 
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
         let mut nodes = Vec::new();
 
         loop {
-            if parser.peek_one_of(Self::FIRST).is_some() {
+            if parser.peek_one_of(&Self::first().tokens).is_some() {
                 nodes.push(T::parse(parser, follow)?);
                 continue;
             }
@@ -198,7 +205,7 @@ impl<T: Parse> Parse for Vec<T> {
             }
 
             return Err(ParseError::UnexpectedToken {
-                expected: [Self::FIRST, &follow.tokens].concat(),
+                expected: [Self::first().tokens.as_slice(), follow.tokens.as_slice()].concat(),
                 got: parser.peek_some().map(Clone::clone),
             });
         }
@@ -208,20 +215,22 @@ impl<T: Parse> Parse for Vec<T> {
 }
 
 impl<T: Parse, G: Parse> Parse for (T, G) {
-    const FIRST: &[SomeTokenKind] = T::FIRST;
-    const CAN_BE_EMPTY: bool = T::CAN_BE_EMPTY && G::CAN_BE_EMPTY;
+    fn first() -> First {
+        T::first().join(|| G::first())
+    }
 
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
         return Ok((
-            T::parse(parser, &G::first_as_follow().join(follow))?,
+            T::parse(parser, &G::first().join(|| follow.clone()))?,
             G::parse(parser, follow)?,
         ));
     }
 }
 
 impl<T: Parse> Parse for Box<T> {
-    const FIRST: &[SomeTokenKind] = T::FIRST;
-    const CAN_BE_EMPTY: bool = T::CAN_BE_EMPTY;
+    fn first() -> First {
+        T::first()
+    }
 
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
         return Ok(Box::new(T::parse(parser, follow)?));
@@ -241,8 +250,9 @@ macro_rules! ParseDerive {
         }
     ) => {
         impl $crate::parser::Parse for $name {
-            const FIRST: &[crate::token::SomeTokenKind] = <$t1>::FIRST;
-            const CAN_BE_EMPTY: bool = <$t1>::CAN_BE_EMPTY $( && <$tn>::CAN_BE_EMPTY )*;
+            fn first() -> $crate::parser::First {
+                <$t1>::first() $( .join( || <$tn>::first() ) )*
+            }
 
             fn parse(parser: &mut $crate::parser::Parser, follow: &crate::parser::Follow) -> Result<Self, $crate::parser::ParseError> {
                 ParseDerive! { field parser follow [ $i1 : $t1, $( $in : $tn, )* ] }
@@ -256,7 +266,7 @@ macro_rules! ParseDerive {
     };
 
     (field $parser:ident $follow:ident [$i1:ident : $t1:ty, $i2:ident : $t2:ty, $( $in:ident : $tn:ty, )*]) => {
-        let $i1 = $crate::parser::Parse::parse($parser, &<$t2>::first_as_follow() $( .join( &<$tn>::first_as_follow() ) )* .join($follow) )?;
+        let $i1 = $crate::parser::Parse::parse($parser, &<$t2>::first() $( .join( || <$tn>::first() ) )* .join(|| $follow.clone()) )?;
         ParseDerive!(field $parser $follow [ $i2 : $t2, $( $in : $tn, )* ])
     };
 
@@ -274,18 +284,29 @@ macro_rules! ParseDerive {
         }
     ) => {
         impl $crate::parser::Parse for $name {
-            const FIRST: &[crate::token::SomeTokenKind] = constcat::concat_slices!([crate::token::SomeTokenKind]: $( <$ty>::FIRST, )*);
-            const CAN_BE_EMPTY: bool = false; // we strongly assume enum cannot be empty
+            fn first() -> $crate::parser::First {
+                let mut tokens = Vec::new();
+                $(
+                    tokens.extend(<$ty>::first().tokens);
+                )*
+
+                $crate::parser::First {
+                    tokens,
+
+                    // we strongly assume enum cannot be empty
+                    can_be_empty: false,
+                }
+            }
 
             fn parse(parser: &mut $crate::parser::Parser, follow: &crate::parser::Follow) -> Result<Self, $crate::parser::ParseError> {
                 $(
-                    if parser.peek_one_of(<$ty>::FIRST).is_some() {
+                    if parser.peek_one_of(&<$ty>::first().tokens).is_some() {
                         return Ok($name::$arm($crate::parser::Parse::parse(parser, follow)?));
                     }
                 )*
 
                 return Err($crate::parser::ParseError::UnexpectedToken {
-                    expected: Self::FIRST.to_vec(),
+                    expected: Self::first().tokens.clone(),
                     got: parser.peek_some().map(Clone::clone),
                 });
             }
@@ -365,5 +386,55 @@ mod tests {
         let expr = A::parse(&mut parser, &Follow::eof()).unwrap();
         assert!(expr.a.len() == 1);
         assert!(expr.b.len() == 1);
+
+        dbg!("done");
+    }
+
+    #[test]
+    pub fn test_follow_is_necessary() {
+        // https://stackoverflow.com/a/70118055
+        // тут утверждается что FOLLOW нужен для LL(1) в общем случае
+        // у меня есть интуиция что это не так, но нужно проверить
+
+        // мое предположение что FOLLOW нужен только для того чтобы упать с ошибкой
+        // в нужном месте, а не где-то после
+
+        // вот грамматика из ответа, которую я и протестирую
+
+        // S -> A
+        // S -> C
+
+        // A -> B '('
+        // B -> '['
+        // B ->
+
+        // C -> D ')'
+        // D -> ']'
+        // D ->
+
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        #[macro_rules_attribute::derive(ParseDerive!)]
+        enum S {
+            A((Option<Token!["["]>, Token!["("])),
+            B((Option<Token!["]"]>, Token![")"])),
+        }
+
+        let tokens = vec![t(LBracket), t(LParen), t(RBracket), t(RParen), t(EOF)];
+        let mut parser = Parser::new(&tokens);
+        _ = S::parse(&mut parser, &Follow::eof()).unwrap();
+
+        let tokens = vec![t(LBracket), t(LParen), t(RParen), t(EOF)];
+        let mut parser = Parser::new(&tokens);
+        _ = S::parse(&mut parser, &Follow::eof()).unwrap();
+
+        let tokens = vec![t(LParen), t(RParen), t(EOF)];
+        let mut parser = Parser::new(&tokens);
+        _ = S::parse(&mut parser, &Follow::eof()).unwrap();
+
+        let tokens = vec![t(LParen), t(RBracket), t(RParen), t(EOF)];
+        let mut parser = Parser::new(&tokens);
+        _ = S::parse(&mut parser, &Follow::eof()).unwrap();
+
+        dbg!("done");
     }
 }

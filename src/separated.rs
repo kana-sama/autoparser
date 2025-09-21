@@ -93,11 +93,12 @@ where
     Sep: TokenTrait + Clone + 'static,
     for<'a> &'a Sep: TryFrom<&'a SomeToken>,
 {
-    const FIRST: &[SomeTokenKind] = T::FIRST;
-    const CAN_BE_EMPTY: bool = T::CAN_BE_EMPTY;
+    fn first() -> First {
+        T::first()
+    }
 
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
-        let first = T::parse(parser, &follow.join(&Sep::first_as_follow()))?;
+        let first = T::parse(parser, &follow.join(|| Sep::first()))?;
 
         if parser.peek_one_of(&follow.tokens).is_some() {
             return Ok(NonEmptySeparated { first, rest: None });
@@ -112,7 +113,7 @@ where
         }
 
         return Err(ParseError::UnexpectedToken {
-            expected: [follow.tokens.as_slice(), Sep::FIRST].concat(),
+            expected: [follow.tokens.as_slice(), Sep::first().tokens.as_slice()].concat(),
             got: parser.peek_some().map(Clone::clone),
         });
     }
@@ -123,8 +124,9 @@ where
     Sep: TokenTrait + Clone + 'static,
     for<'a> &'a Sep: TryFrom<&'a SomeToken>,
 {
-    const FIRST: &[SomeTokenKind] = &[Sep::KIND];
-    const CAN_BE_EMPTY: bool = false;
+    fn first() -> First {
+        Sep::first()
+    }
 
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
         let sep = parser.take::<Sep>()?.clone();
@@ -133,8 +135,8 @@ where
             return Ok(NonEmptySeparatedRest { sep, rest: None });
         }
 
-        if parser.peek_one_of(T::FIRST).is_some() {
-            let t = T::parse(parser, &follow.join(&Sep::first_as_follow()))?;
+        if parser.peek_one_of(&T::first().tokens).is_some() {
+            let t = T::parse(parser, &follow.join(|| Sep::first()))?;
 
             if parser.peek_one_of(&follow.tokens).is_some() {
                 return Ok(NonEmptySeparatedRest {
@@ -153,7 +155,7 @@ where
         }
 
         return Err(ParseError::UnexpectedToken {
-            expected: [follow.tokens.as_slice(), T::FIRST].concat(),
+            expected: [follow.tokens.as_slice(), &T::first().tokens].concat(),
             got: parser.peek_some().map(Clone::clone),
         });
     }
@@ -164,11 +166,15 @@ where
     Sep: TokenTrait + Clone + 'static,
     for<'a> &'a Sep: TryFrom<&'a SomeToken>,
 {
-    const FIRST: &[SomeTokenKind] = T::FIRST;
-    const CAN_BE_EMPTY: bool = true;
+    fn first() -> First {
+        First {
+            tokens: T::first().tokens,
+            can_be_empty: true,
+        }
+    }
 
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
-        if parser.peek_one_of(Self::FIRST).is_some() {
+        if parser.peek_one_of(&Self::first().tokens).is_some() {
             return Ok(Separated::NonEmpty(Parse::parse(parser, follow)?));
         }
 

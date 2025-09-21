@@ -1,4 +1,4 @@
-macro_rules! define_kinds {
+macro_rules! tokens {
     (
         $some_token_vis:vis enum $some_token:ident;
         $some_kind_vis:vis enum $some_kind:ident;
@@ -14,7 +14,7 @@ macro_rules! define_kinds {
             )*
         }
 
-        $( define_kinds!(impl KindTrait for $Kind($str) with $type); )*
+        $( tokens!(impl KindTrait for $Kind($str) with $type); )*
 
         #[derive(Debug, Clone, PartialEq, Eq, derive_more::From, derive_more::TryInto)]
         #[try_into(owned, ref, ref_mut)]
@@ -29,7 +29,7 @@ macro_rules! define_kinds {
 
         $(
             impl TokenTrait for TokenStruct<kinds::$Kind> {
-                const KIND: SomeTokenKind = SomeTokenKind::$Kind;
+                const KIND: $some_kind = SomeTokenKind::$Kind;
             }
         )*
 
@@ -49,6 +49,7 @@ macro_rules! define_kinds {
             )*
         }
 
+        #[allow(unused)]
         pub(crate) use Token;
 
     };
@@ -80,6 +81,8 @@ macro_rules! define_kinds {
         }
     };
 }
+
+pub(crate) use tokens;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct TokenStruct<K> {
@@ -121,7 +124,7 @@ pub trait KindTrait {
     fn as_string<'source>(&self, source: &'source str) -> &'source str;
 }
 
-define_kinds! {
+tokens! {
     pub enum SomeToken;
     pub enum SomeTokenKind;
 

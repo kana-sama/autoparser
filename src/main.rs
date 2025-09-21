@@ -2,6 +2,7 @@
 #![feature(generic_const_exprs)]
 #![feature(debug_closure_helpers)]
 #![feature(assert_matches)]
+#![feature(const_trait_impl)]
 
 pub mod parser;
 pub mod separated;
