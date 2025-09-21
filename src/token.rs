@@ -3,7 +3,7 @@ macro_rules! tokens {
         $some_token_vis:vis enum $some_token:ident;
         $some_kind_vis:vis enum $some_kind:ident;
 
-        macro $token_macro:ident! {
+        macro $token_macro:ident! $token_term_macro:ident! {
             $( $str:tt => $Kind:ident $type:tt, )*
         }
     ) => {
@@ -41,6 +41,7 @@ macro_rules! tokens {
             }
         }
 
+        #[allow(unused)]
         macro_rules! $token_macro {
             $(
                 [$str] => {
@@ -50,7 +51,19 @@ macro_rules! tokens {
         }
 
         #[allow(unused)]
-        pub(crate) use Token;
+        macro_rules! $token_term_macro {
+            $(
+                [$str] => {
+                    $crate::token::TokenStruct::<$crate::token::kinds::$Kind> {
+                        kind: std::marker::PhantomData,
+                        loc: $crate::token::Loc::empty(),
+                    }.into()
+                };
+            )*
+        }
+
+        #[allow(unused)]
+        pub(crate) use { $token_macro, $token_term_macro };
 
     };
 
@@ -128,7 +141,7 @@ tokens! {
     pub enum SomeToken;
     pub enum SomeTokenKind;
 
-    macro Token! {
+    macro Token! t! {
         "ident"             => Ident            capture,
         "#tag"              => Tag              capture,
 
