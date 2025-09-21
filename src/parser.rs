@@ -187,8 +187,20 @@ impl<T: Parse> Parse for Vec<T> {
     fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
         let mut nodes = Vec::new();
 
-        while parser.peek_one_of(&follow.tokens).is_none() {
-            nodes.push(T::parse(parser, follow)?);
+        loop {
+            if parser.peek_one_of(Self::FIRST).is_some() {
+                nodes.push(T::parse(parser, follow)?);
+                continue;
+            }
+
+            if parser.peek_one_of(&follow.tokens).is_some() {
+                break;
+            }
+
+            return Err(ParseError::UnexpectedToken {
+                expected: [Self::FIRST, &follow.tokens].concat(),
+                got: parser.peek_some().map(Clone::clone),
+            });
         }
 
         return Ok(nodes);
@@ -328,7 +340,7 @@ mod tests {
         // A -> '(' A
         //
         // B ->
-        // B -> ')'
+        // B -> ')' B
 
         // без рекурсивного проброса FOLLOW, A будет ждать ")" для завершения
         // но на самом деле там может быть как ")", так и ";", потому что ")" - это опциональный токен
@@ -338,7 +350,7 @@ mod tests {
         #[macro_rules_attribute::derive(ParseDerive!)]
         struct A {
             pub a: Vec<Token!["("]>,
-            pub b: Option<Token![")"]>,
+            pub b: Vec<Token![")"]>,
             pub eof: Token![";"],
         }
 
@@ -346,12 +358,12 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         let expr = A::parse(&mut parser, &Follow::eof()).unwrap();
         assert!(expr.a.len() == 1);
-        assert!(expr.b.is_none());
+        assert!(expr.b.len() == 0);
 
         let tokens = vec![t(LParen), t(RParen), t(Semicolon), t(EOF)];
         let mut parser = Parser::new(&tokens);
         let expr = A::parse(&mut parser, &Follow::eof()).unwrap();
         assert!(expr.a.len() == 1);
-        assert!(expr.b.is_some());
+        assert!(expr.b.len() == 1);
     }
 }
