@@ -73,7 +73,7 @@ macro_rules! define_kinds {
 
     (impl KindTrait for $Kind:ident($str:literal) with capture) => {
         impl KindTrait for TokenStruct<kinds::$Kind> {
-            const IS_KEYWORD: bool = true;
+            const IS_KEYWORD: bool = false;
             fn as_string<'source>(&self, source: &'source str) -> &'source str {
                 &source[self.loc.start..self.loc.end]
             }
