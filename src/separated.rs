@@ -94,11 +94,12 @@ where
     for<'a> &'a Sep: TryFrom<&'a SomeToken>,
 {
     const FIRST: &[SomeTokenKind] = T::FIRST;
+    const CAN_BE_EMPTY: bool = T::CAN_BE_EMPTY;
 
-    fn parse(parser: &mut Parser, follow: &[SomeTokenKind]) -> Result<Self, ParseError> {
-        let first = T::parse(parser, &[follow, Sep::FIRST].concat())?;
+    fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
+        let first = T::parse(parser, &follow.join(&Sep::first_as_follow()))?;
 
-        if parser.peek_one_of(follow).is_some() {
+        if parser.peek_one_of(&follow.tokens).is_some() {
             return Ok(NonEmptySeparated { first, rest: None });
         }
 
@@ -111,7 +112,7 @@ where
         }
 
         return Err(ParseError::UnexpectedToken {
-            expected: [follow, Sep::FIRST].concat(),
+            expected: [follow.tokens.as_slice(), Sep::FIRST].concat(),
             got: parser.peek_some().map(Clone::clone),
         });
     }
@@ -123,18 +124,19 @@ where
     for<'a> &'a Sep: TryFrom<&'a SomeToken>,
 {
     const FIRST: &[SomeTokenKind] = &[Sep::KIND];
+    const CAN_BE_EMPTY: bool = false;
 
-    fn parse(parser: &mut Parser, follow: &[SomeTokenKind]) -> Result<Self, ParseError> {
+    fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
         let sep = parser.take::<Sep>()?.clone();
 
-        if parser.peek_one_of(follow).is_some() {
+        if parser.peek_one_of(&follow.tokens).is_some() {
             return Ok(NonEmptySeparatedRest { sep, rest: None });
         }
 
         if parser.peek_one_of(T::FIRST).is_some() {
-            let t = T::parse(parser, &[follow, Sep::FIRST].concat())?;
+            let t = T::parse(parser, &follow.join(&Sep::first_as_follow()))?;
 
-            if parser.peek_one_of(follow).is_some() {
+            if parser.peek_one_of(&follow.tokens).is_some() {
                 return Ok(NonEmptySeparatedRest {
                     sep,
                     rest: Some((t, None)),
@@ -151,7 +153,7 @@ where
         }
 
         return Err(ParseError::UnexpectedToken {
-            expected: [follow, T::FIRST].concat(),
+            expected: [follow.tokens.as_slice(), T::FIRST].concat(),
             got: parser.peek_some().map(Clone::clone),
         });
     }
@@ -163,8 +165,9 @@ where
     for<'a> &'a Sep: TryFrom<&'a SomeToken>,
 {
     const FIRST: &[SomeTokenKind] = T::FIRST;
+    const CAN_BE_EMPTY: bool = true;
 
-    fn parse(parser: &mut Parser, follow: &[SomeTokenKind]) -> Result<Self, ParseError> {
+    fn parse(parser: &mut Parser, follow: &Follow) -> Result<Self, ParseError> {
         if parser.peek_one_of(Self::FIRST).is_some() {
             return Ok(Separated::NonEmpty(Parse::parse(parser, follow)?));
         }
