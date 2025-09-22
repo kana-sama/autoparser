@@ -1,3 +1,6 @@
+use crate::token::TokenOfKind;
+use std::fmt::{Debug, DebugList};
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum Separated<T, Sep> {
     Empty,
@@ -12,15 +15,18 @@ pub struct NonEmptySeparated<T, Sep> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct NonEmptySeparatedRest<T, Sep> {
-    pub sep: Sep,
+    pub sep: TokenOfKind<Sep>,
     pub rest: Option<(T, Option<Box<NonEmptySeparatedRest<T, Sep>>>)>,
 }
 
-trait DebugList {
-    fn fmt_items(&self, f: &mut std::fmt::DebugList);
+trait DebugAsList {
+    fn fmt_items(&self, f: &mut DebugList);
 }
 
-impl<T: std::fmt::Debug, Sep: std::fmt::Debug> std::fmt::Debug for Separated<T, Sep> {
+impl<T: Debug, Sep: Debug> Debug for Separated<T, Sep>
+where
+    TokenOfKind<Sep>: Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("Separated")
             .field_with(|f| {
@@ -32,7 +38,10 @@ impl<T: std::fmt::Debug, Sep: std::fmt::Debug> std::fmt::Debug for Separated<T, 
     }
 }
 
-impl<T: std::fmt::Debug, Sep: std::fmt::Debug> std::fmt::Debug for NonEmptySeparated<T, Sep> {
+impl<T: Debug, Sep: Debug> Debug for NonEmptySeparated<T, Sep>
+where
+    TokenOfKind<Sep>: Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("NonEmptySeparated")
             .field_with(|f| {
@@ -44,8 +53,11 @@ impl<T: std::fmt::Debug, Sep: std::fmt::Debug> std::fmt::Debug for NonEmptySepar
     }
 }
 
-impl<T: std::fmt::Debug, Sep: std::fmt::Debug> DebugList for Separated<T, Sep> {
-    fn fmt_items(&self, list: &mut std::fmt::DebugList) {
+impl<T: Debug, Sep: Debug> DebugAsList for Separated<T, Sep>
+where
+    TokenOfKind<Sep>: Debug,
+{
+    fn fmt_items(&self, list: &mut DebugList) {
         match self {
             Separated::Empty => {}
             Separated::NonEmpty(non_empty) => {
@@ -55,8 +67,11 @@ impl<T: std::fmt::Debug, Sep: std::fmt::Debug> DebugList for Separated<T, Sep> {
     }
 }
 
-impl<T: std::fmt::Debug, Sep: std::fmt::Debug> DebugList for NonEmptySeparated<T, Sep> {
-    fn fmt_items(&self, list: &mut std::fmt::DebugList) {
+impl<T: Debug, Sep: Debug> DebugAsList for NonEmptySeparated<T, Sep>
+where
+    TokenOfKind<Sep>: Debug,
+{
+    fn fmt_items(&self, list: &mut DebugList) {
         list.entry(&self.first);
 
         let Some(rest) = &self.rest else {
@@ -67,8 +82,11 @@ impl<T: std::fmt::Debug, Sep: std::fmt::Debug> DebugList for NonEmptySeparated<T
     }
 }
 
-impl<T: std::fmt::Debug, Sep: std::fmt::Debug> DebugList for NonEmptySeparatedRest<T, Sep> {
-    fn fmt_items(&self, list: &mut std::fmt::DebugList) {
+impl<T: Debug, Sep> DebugAsList for NonEmptySeparatedRest<T, Sep>
+where
+    TokenOfKind<Sep>: Debug,
+{
+    fn fmt_items(&self, list: &mut DebugList) {
         list.entry(&self.sep);
 
         let Some((item, next)) = &self.rest else {

@@ -1,14 +1,49 @@
 use macro_rules_attribute::{apply, attribute_alias};
 
-use crate::parser::ParseDerive;
+use crate::parser::derive_parse;
 use crate::separated::{NonEmptySeparated, Separated};
 use crate::token::*;
 
-attribute_alias! {
-    #[apply(node)] =
-        #[macro_rules_attribute::derive(ParseDerive!)]
-        #[apply(unpacked_debug)]
-        #[derive(Clone, PartialEq, Eq)];
+token_set! {
+    pub mod token {
+        pub struct Set;
+
+        pub mod kinds {
+            "ident"             => Ident,
+            "#tag"              => Tag,
+
+            "("                 => LParen,
+            ")"                 => RParen,
+            "{"                 => LBrace,
+            "}"                 => RBrace,
+            "["                 => LBracket,
+            "]"                 => RBracket,
+
+            "="                 => Equal,
+            ";"                 => Semicolon,
+            ":"                 => Colon,
+            "_"                 => Underscore,
+            "->"                => Arrow,
+            ","                 => Comma,
+            "EOF"               => EOF,
+
+            "begin"             => Begin,
+            "end"               => End,
+            "let"               => Let,
+            "else"              => Else,
+            "return"            => Return,
+            "case"              => Case,
+            "of"                => Of,
+            "enum"              => Enum,
+            "function"          => Function,
+            "returns"           => Returns,
+            "type"              => Type,
+            "module"            => Module,
+            "public"            => Public,
+            "interface"         => Interface,
+            "implementation"    => Implementation,
+        }
+    }
 }
 
 macro_rules! unpacked_debug {
@@ -53,11 +88,11 @@ pub enum Expr {
 pub mod expr {
     use super::*;
 
-    pub type Ident = Token!["ident"];
+    pub type Ident = token::T!["ident"];
 
     #[apply(node)]
     pub struct Variant {
-        pub tag: Token!["#tag"],
+        pub tag: token::T!["#tag"],
         pub payload: Option<variant::Payload>,
     }
 
@@ -66,18 +101,18 @@ pub mod expr {
 
         #[apply(node)]
         pub struct Payload {
-            pub l_paren: Token!["("],
-            pub exprs: Separated<Box<Expr>, Token![","]>,
-            pub r_paren: Token![")"],
+            pub l_paren: token::T!["("],
+            pub exprs: Separated<Box<Expr>, token::K![","]>,
+            pub r_paren: token::T![")"],
         }
     }
 
     #[apply(node)]
     pub struct Let {
-        pub r#let: Token!["let"],
+        pub r#let: token::T!["let"],
         pub pat: Box<Pat>,
         pub type_ann: Option<r#let::TypeAnn>,
-        pub eq: Token!["="],
+        pub eq: token::T!["="],
         pub value: Box<Expr>,
         pub r#else: Option<r#let::Else>,
     }
@@ -87,37 +122,37 @@ pub mod expr {
 
         #[apply(node)]
         pub struct TypeAnn {
-            pub colon: Token![":"],
+            pub colon: token::T![":"],
             pub r#type: Box<Type>,
         }
 
         #[apply(node)]
         pub struct Else {
-            pub r#else: Token!["else"],
+            pub r#else: token::T!["else"],
             pub expr: Box<Expr>,
         }
     }
 
     #[apply(node)]
     pub struct Block {
-        pub begin: Token!["begin"],
-        pub exprs: NonEmptySeparated<Box<Expr>, Token![";"]>,
-        pub end: Token!["end"],
+        pub begin: token::T!["begin"],
+        pub exprs: NonEmptySeparated<Box<Expr>, token::K![";"]>,
+        pub end: token::T!["end"],
     }
 
     #[apply(node)]
     pub struct Return {
-        pub r#return: Token!["return"],
+        pub r#return: token::T!["return"],
         pub expr: Box<Expr>,
     }
 
     #[apply(node)]
     pub struct Case {
-        pub case: Token!["case"],
+        pub case: token::T!["case"],
         pub value: Box<Expr>,
-        pub of: Token!["of"],
-        pub arms: Separated<case::Arm, Token![";"]>,
-        pub end: Token!["end"],
+        pub of: token::T!["of"],
+        pub arms: Separated<case::Arm, token::K![";"]>,
+        pub end: token::T!["end"],
     }
 
     pub mod case {
@@ -126,18 +161,18 @@ pub mod expr {
         #[apply(node)]
         pub struct Arm {
             pub pat: Box<Pat>,
-            pub arrow: Token!["->"],
+            pub arrow: token::T!["->"],
             pub body: Box<Expr>,
         }
     }
 
     #[apply(node)]
     pub struct Annotated {
-        pub l_paren: Token!["("],
+        pub l_paren: token::T!["("],
         pub expr: Box<Expr>,
-        pub colon: Token![":"],
+        pub colon: token::T![":"],
         pub r#type: Box<Type>,
-        pub r_paren: Token![")"],
+        pub r_paren: token::T![")"],
     }
 }
 
@@ -151,13 +186,13 @@ pub enum Pat {
 pub mod pat {
     use super::*;
 
-    pub type Wildcard = Token!["_"];
+    pub type Wildcard = token::T!["_"];
 
-    pub type Ident = Token!["ident"];
+    pub type Ident = token::T!["ident"];
 
     #[apply(node)]
     pub struct Variant {
-        pub tag: Token!["#tag"],
+        pub tag: token::T!["#tag"],
         pub payload: Option<variant::Payload>,
     }
 
@@ -166,9 +201,9 @@ pub mod pat {
 
         #[apply(node)]
         pub struct Payload {
-            pub l_paren: Token!["("],
-            pub pats: Separated<Box<Pat>, Token![","]>,
-            pub r_paren: Token![")"],
+            pub l_paren: token::T!["("],
+            pub pats: Separated<Box<Pat>, token::K![","]>,
+            pub r_paren: token::T![")"],
         }
     }
 }
@@ -183,13 +218,13 @@ pub enum Type {
 pub mod r#type {
     use super::*;
 
-    pub type Ident = Token!["ident"];
+    pub type Ident = token::T!["ident"];
 
     #[apply(node)]
     pub struct Enum {
-        pub l_bracket_token: Token!["enum"],
-        pub variants: Separated<r#enum::Variant, Token![";"]>,
-        pub r_bracket_token: Token!["end"],
+        pub l_bracket_token: token::T!["enum"],
+        pub variants: Separated<r#enum::Variant, token::K![";"]>,
+        pub r_bracket_token: token::T!["end"],
     }
 
     pub mod r#enum {
@@ -197,7 +232,7 @@ pub mod r#type {
 
         #[apply(node)]
         pub struct Variant {
-            pub tag: Token!["#tag"],
+            pub tag: token::T!["#tag"],
             pub payload: Option<variant::Payload>,
         }
 
@@ -206,20 +241,20 @@ pub mod r#type {
 
             #[apply(node)]
             pub struct Payload {
-                pub l_paren_token: Token!["("],
-                pub types: Separated<Box<Type>, Token![","]>,
-                pub r_paren_token: Token![")"],
+                pub l_paren_token: token::T!["("],
+                pub types: Separated<Box<Type>, token::K![","]>,
+                pub r_paren_token: token::T![")"],
             }
         }
     }
 
     #[apply(node)]
     pub struct Function {
-        pub function_token: Token!["function"],
-        pub l_paren_token: Token!["("],
-        pub params: Separated<function::Param, Token![","]>,
-        pub r_paren_token: Token![")"],
-        pub arrow_token: Token!["returns"],
+        pub function_token: token::T!["function"],
+        pub l_paren_token: token::T!["("],
+        pub params: Separated<function::Param, token::K![","]>,
+        pub r_paren_token: token::T![")"],
+        pub arrow_token: token::T!["returns"],
         pub return_type: Box<Type>,
     }
 
@@ -228,8 +263,8 @@ pub mod r#type {
 
         #[apply(node)]
         pub struct Param {
-            pub name: Token!["ident"],
-            pub colon_token: Token![":"],
+            pub name: token::T!["ident"],
+            pub colon_token: token::T![":"],
             pub r#type: Box<Type>,
         }
     }
@@ -237,10 +272,10 @@ pub mod r#type {
 
 #[apply(node)]
 pub struct Module {
-    pub module: Token!["module"],
+    pub module: token::T!["module"],
     pub interface: Option<module::Interface>,
     pub implementation: Option<module::Implementation>,
-    pub end: Token!["end"],
+    pub end: token::T!["end"],
 }
 
 pub mod module {
@@ -248,13 +283,13 @@ pub mod module {
 
     #[apply(node)]
     pub struct Interface {
-        pub interface: Token!["interface"],
+        pub interface: token::T!["interface"],
         pub items: Vec<InterfaceItem>,
     }
 
     #[apply(node)]
     pub struct Implementation {
-        pub implementation: Token!["implementation"],
+        pub implementation: token::T!["implementation"],
         pub items: Vec<ImplementationItem>,
     }
 
@@ -269,10 +304,10 @@ pub mod module {
 
         #[apply(node)]
         pub struct TypeAlias {
-            pub r#type: Token!["type"],
-            pub name: Token!["ident"],
+            pub r#type: token::T!["type"],
+            pub name: token::T!["ident"],
             pub value: Option<type_alias::Value>,
-            pub semicolon: Token![";"],
+            pub semicolon: token::T![";"],
         }
 
         pub mod type_alias {
@@ -280,23 +315,23 @@ pub mod module {
 
             #[apply(node)]
             pub struct Value {
-                pub eq_token: Token!["="],
+                pub eq_token: token::T!["="],
                 pub r#type: Box<Type>,
             }
         }
 
         #[apply(node)]
         pub struct Function {
-            pub function: Token!["function"],
-            pub name: Token!["ident"],
-            pub l_paren: Token!["("],
-            pub params: Separated<function::Param, Token![","]>,
-            pub r_paren: Token![")"],
-            pub returns: Token!["returns"],
-            pub return_name: Token!["ident"],
-            pub return_colon: Token![":"],
+            pub function: token::T!["function"],
+            pub name: token::T!["ident"],
+            pub l_paren: token::T!["("],
+            pub params: Separated<function::Param, token::K![","]>,
+            pub r_paren: token::T![")"],
+            pub returns: token::T!["returns"],
+            pub return_name: token::T!["ident"],
+            pub return_colon: token::T![":"],
             pub return_type: Box<Type>,
-            pub semicolon: Token![";"],
+            pub semicolon: token::T![";"],
         }
 
         pub mod function {
@@ -304,8 +339,8 @@ pub mod module {
 
             #[apply(node)]
             pub struct Param {
-                pub name: Token!["ident"],
-                pub colon_token: Token![":"],
+                pub name: token::T!["ident"],
+                pub colon_token: token::T![":"],
                 pub r#type: Box<Type>,
             }
         }
@@ -322,23 +357,23 @@ pub mod module {
 
         #[apply(node)]
         pub struct TypeAlias {
-            pub r#type: Token!["type"],
-            pub name: Token!["ident"],
-            pub eq: Token!["="],
+            pub r#type: token::T!["type"],
+            pub name: token::T!["ident"],
+            pub eq: token::T!["="],
             pub value: Box<Type>,
-            pub semicolon_token: Token![";"],
+            pub semicolon_token: token::T![";"],
         }
 
         #[apply(node)]
         pub struct Function {
-            pub function_token: Token!["function"],
-            pub name: Token!["ident"],
-            pub l_paren_token: Token!["("],
-            pub params: Separated<function::Param, Token![","]>,
-            pub r_paren_token: Token![")"],
-            pub returns: Token!["returns"],
-            pub return_name: Token!["ident"],
-            pub return_colon: Token![":"],
+            pub function_token: token::T!["function"],
+            pub name: token::T!["ident"],
+            pub l_paren_token: token::T!["("],
+            pub params: Separated<function::Param, token::K![","]>,
+            pub r_paren_token: token::T![")"],
+            pub returns: token::T!["returns"],
+            pub return_name: token::T!["ident"],
+            pub return_colon: token::T![":"],
             pub return_type: Box<Type>,
             pub body: expr::Block,
         }
@@ -348,10 +383,18 @@ pub mod module {
 
             #[apply(node)]
             pub struct Param {
-                pub name: Token!["ident"],
-                pub colon_token: Token![":"],
+                pub name: token::T!["ident"],
+                pub colon_token: token::T![":"],
                 pub r#type: Box<Type>,
             }
         }
     }
+}
+
+attribute_alias! {
+    #[apply(node)] =
+        #[apply(derive_parse)]
+        #[token_set(token::Set)]
+        #[apply(unpacked_debug)]
+        #[derive(Clone, PartialEq, Eq)];
 }

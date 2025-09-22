@@ -3,6 +3,7 @@
 #![feature(debug_closure_helpers)]
 #![feature(assert_matches)]
 #![feature(const_trait_impl)]
+#![feature(maybe_uninit_array_assume_init)]
 
 pub mod parser;
 pub mod separated;
