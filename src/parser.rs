@@ -49,10 +49,7 @@ impl<'tok, Tok: TokenSet> Parser<'tok, Tok> {
 
     pub fn assert<K: KindOfSet<Tok>>(&self) -> Result<&'tok TokenOfKind<K>, ParseError<Tok>> {
         if self.cursor >= self.tokens.len() {
-            return Err(ParseError::UnexpectedToken {
-                expected: vec![K::KIND],
-                got: None,
-            });
+            return Err(ParseError::UnexpectedToken { expected: vec![K::KIND], got: None });
         }
 
         let current = &self.tokens[self.cursor];
@@ -82,10 +79,7 @@ impl<'tok, Tok: TokenSet> Parser<'tok, Tok> {
 
     pub fn assert_one_of(&self, kinds: &[Tok::Kind]) -> Result<&'tok Tok::Token, ParseError<Tok>> {
         if self.cursor >= self.tokens.len() {
-            return Err(ParseError::UnexpectedToken {
-                expected: kinds.to_vec(),
-                got: None,
-            });
+            return Err(ParseError::UnexpectedToken { expected: kinds.to_vec(), got: None });
         }
 
         let current = &self.tokens[self.cursor];
@@ -123,10 +117,7 @@ pub struct First<Tok: TokenSet> {
 
 impl<Tok: TokenSet> First<Tok> {
     pub fn new(tokens: Vec<Tok::Kind>) -> Self {
-        Self {
-            tokens,
-            can_be_empty: false,
-        }
+        Self { tokens, can_be_empty: false }
     }
 
     pub fn follow(mut self, other: impl FnOnce() -> Self) -> Self {
@@ -150,10 +141,7 @@ pub trait Parse<Tok: TokenSet>: Sized {
     fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>>;
 }
 
-impl<Tok: TokenSet, K: KindOfSet<Tok>> Parse<Tok> for TokenOfKind<K>
-where
-    TokenOfKind<K>: Clone,
-{
+impl<Tok: TokenSet, K: KindOfSet<Tok>> Parse<Tok> for TokenOfKind<K> {
     fn first() -> First<Tok> {
         First::new(vec![K::KIND])
     }
@@ -228,9 +216,8 @@ impl<Tok: TokenSet, P: Parse<Tok>, Sep: KindOfSet<Tok>> Parse<Tok> for NonEmptyS
     }
 }
 
-impl<Tok: TokenSet, P: Parse<Tok>, Sep: KindOfSet<Tok>> Parse<Tok> for NonEmptySeparatedRest<P, Sep>
-where
-    TokenOfKind<Sep>: Clone,
+impl<Tok: TokenSet, P: Parse<Tok>, Sep: KindOfSet<Tok>> Parse<Tok>
+    for NonEmptySeparatedRest<P, Sep>
 {
     fn first() -> First<Tok> {
         First::new(vec![Sep::KIND])
@@ -245,10 +232,7 @@ where
             if parser.peek::<Sep>().is_some() {
                 let rest = Parse::parse(parser)?;
 
-                return Ok(NonEmptySeparatedRest {
-                    sep,
-                    rest: Some((t, Some(Box::new(rest)))),
-                });
+                return Ok(NonEmptySeparatedRest { sep, rest: Some((t, Some(Box::new(rest)))) });
             }
         } else {
             return Ok(NonEmptySeparatedRest { sep, rest: None });
@@ -348,12 +332,7 @@ macro_rules! derive_parse {
 
         impl $crate::parser::Parse<$Tok> for $name {
             fn first() -> $crate::parser::First<$Tok> {
-                let mut tokens = Vec::new();
-                $(
-                    tokens.extend(<$ty>::first().tokens);
-                )*
-
-                $crate::parser::First::new(tokens)
+                $crate::parser::First::new([ $( <$ty>::first().tokens ),* ].concat())
             }
 
             fn parse(parser: &mut $crate::parser::Parser<$Tok>) -> Result<Self, $crate::parser::ParseError<$Tok>> {
@@ -381,30 +360,6 @@ mod tests {
 
     use macro_rules_attribute::apply;
     use std::assert_matches::assert_matches;
-
-    #[test]
-    fn test_expr() {
-        use crate::syntax::token::t;
-        use crate::syntax::*;
-
-        #[rustfmt::skip]
-        let tokens = vec![
-            t!["begin"],
-                t!["ident"], t![";"],
-                t!["let"], t!["_"], t![":"], t!["ident"], t!["="],
-                    t!["#tag"], t!["("],
-                        t!["#tag"], t![","],
-                        t!["ident"], t![","],
-                    t![")"],
-                t![";"],
-            t!["end"],
-            t!["EOF"],
-        ];
-
-        let expr: Expr = parse(&tokens).unwrap();
-
-        dbg!(expr);
-    }
 
     #[test]
     pub fn test_follow_is_not_necessary() {
@@ -458,30 +413,11 @@ mod tests {
             pub e: Option<T![";"]>,
         }
 
-        assert_matches!(parse(&[t!["b"], t!["b"]]).unwrap(), S2 { b, d, e } if b.len() == 2 && d.len() == 0 && e.is_none());
-        assert_matches!(parse(&[t!["b"], t!["d"]]).unwrap(), S2 { b, d, e } if b.len() == 1 && d.len() == 1 && e.is_none());
-        assert_matches!(parse(&[t!["d"], t!["d"]]).unwrap(), S2 { b, d, e } if b.len() == 0 && d.len() == 2 && e.is_none());
-        assert_matches!(parse(&[t!["b"], t!["b"], t![";"]]).unwrap(), S2 { b, d, e } if b.len() == 2 && d.len() == 0 && e.is_some());
-        assert_matches!(parse(&[t!["b"], t!["d"], t![";"]]).unwrap(), S2 { b, d, e } if b.len() == 1 && d.len() == 1 && e.is_some());
-        assert_matches!(parse(&[t!["d"], t!["d"], t![";"]]).unwrap(), S2 { b, d, e } if b.len() == 0 && d.len() == 2 && e.is_some());
+        assert_matches!(parse(&[t!["b"], t!["b"]]).unwrap(), S2 { b, d, e: None } if b.len() == 2 && d.len() == 0);
+        assert_matches!(parse(&[t!["b"], t!["d"]]).unwrap(), S2 { b, d, e: None } if b.len() == 1 && d.len() == 1);
+        assert_matches!(parse(&[t!["d"], t!["d"]]).unwrap(), S2 { b, d, e: None } if b.len() == 0 && d.len() == 2);
+        assert_matches!(parse(&[t!["b"], t!["b"], t![";"]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 2 && d.len() == 0);
+        assert_matches!(parse(&[t!["b"], t!["d"], t![";"]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 1 && d.len() == 1);
+        assert_matches!(parse(&[t!["d"], t!["d"], t![";"]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 0 && d.len() == 2);
     }
 }
-
-// const fn concat<T: Copy, const LEN: usize>(a: &[T], b: &[T]) -> [T; LEN] {
-//     let mut result = [std::mem::MaybeUninit::uninit(); LEN];
-//     let mut i;
-
-//     i = 0;
-//     while i < a.len() {
-//         result[i] = std::mem::MaybeUninit::new(a[i]);
-//         i += 1;
-//     }
-
-//     i = 0;
-//     while i < b.len() {
-//         result[a.len() + i] = std::mem::MaybeUninit::new(b[i]);
-//         i += 1;
-//     }
-
-//     return unsafe { std::mem::MaybeUninit::array_assume_init(result) };
-// }

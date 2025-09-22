@@ -12,6 +12,12 @@ pub struct Loc {
     pub column: usize,
 }
 
+impl Loc {
+    pub fn range(&self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
+}
+
 pub trait TokenSet {
     type Kind: Clone + Copy + PartialEq + Eq;
     type Token: Clone;
@@ -21,7 +27,10 @@ pub trait TokenSet {
 
 pub trait KindOfSet<Tok: TokenSet>: Clone + Sized + 'static {
     const KIND: Tok::Kind;
+    const ALIAS: &str;
+
     fn from_token<'tok>(token: &'tok Tok::Token) -> Option<&'tok TokenOfKind<Self>>;
+    fn to_token(token: TokenOfKind<Self>) -> Tok::Token;
 }
 
 impl<K: Default + std::fmt::Debug> std::fmt::Debug for TokenOfKind<K> {
@@ -58,6 +67,27 @@ macro_rules! token_set {
                 $( $Kind($crate::token::TokenOfKind<$kinds_mod::$Kind>), )*
             }
 
+            impl Kind {
+                pub fn to_string(&self) -> &'static str {
+                    match self {
+                        $( Self::$Kind => $alias, )*
+                    }
+                }
+            }
+
+            impl Token {
+                pub fn loc(&self) -> &crate::token::Loc {
+                    match self {
+                        $( Self::$Kind(tok) => &tok.loc, )*
+                    }
+                }
+
+                pub fn to_source_string<'source>(&self, source: &'source str) -> &'source str {
+                    let loc = self.loc();
+                    &source[loc.start..loc.end]
+                }
+            }
+
             impl $crate::token::TokenSet for Set {
                 type Kind = Kind;
                 type Token = Token;
@@ -76,6 +106,7 @@ macro_rules! token_set {
 
                     impl $crate::token::KindOfSet<super::Set> for $Kind {
                         const KIND: <super::Set as $crate::token::TokenSet>::Kind = super::Kind::$Kind;
+                        const ALIAS: &str = $alias;
 
                         fn from_token<'tok>(token: &'tok <super::Set as crate::token::TokenSet>::Token) -> Option<&'tok $crate::token::TokenOfKind<Self>> {
                             if let super::Token::$Kind(tok) = token {
@@ -84,11 +115,24 @@ macro_rules! token_set {
                                 None
                             }
                         }
+
+                        fn to_token(token: $crate::token::TokenOfKind<Self>) -> <super::Set as $crate::token::TokenSet>::Token {
+                            super::Token::$Kind(token)
+                        }
+
                     }
                 )*
             }
 
             macro_rules! K {
+                $(
+                    ( $alias ) => {
+                        $mod::kinds::$Kind
+                    };
+                )*
+            }
+
+            macro_rules! k {
                 $(
                     ( $alias ) => {
                         $mod::kinds::$Kind
@@ -115,7 +159,7 @@ macro_rules! token_set {
                 )*
             }
 
-            pub(crate) use { K, T, t };
+            pub(crate) use { K, k, T, t };
         }
     };
 }

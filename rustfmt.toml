@@ -1,0 +1,2 @@
+struct_lit_width = 80
+overflow_delimited_expr = true

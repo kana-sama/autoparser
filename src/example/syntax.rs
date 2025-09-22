@@ -2,49 +2,8 @@ use macro_rules_attribute::{apply, attribute_alias};
 
 use crate::parser::derive_parse;
 use crate::separated::{NonEmptySeparated, Separated};
-use crate::token::*;
 
-token_set! {
-    pub mod token {
-        pub struct Set;
-
-        pub mod kinds {
-            "ident"             => Ident,
-            "#tag"              => Tag,
-
-            "("                 => LParen,
-            ")"                 => RParen,
-            "{"                 => LBrace,
-            "}"                 => RBrace,
-            "["                 => LBracket,
-            "]"                 => RBracket,
-
-            "="                 => Equal,
-            ";"                 => Semicolon,
-            ":"                 => Colon,
-            "_"                 => Underscore,
-            "->"                => Arrow,
-            ","                 => Comma,
-            "EOF"               => EOF,
-
-            "begin"             => Begin,
-            "end"               => End,
-            "let"               => Let,
-            "else"              => Else,
-            "return"            => Return,
-            "case"              => Case,
-            "of"                => Of,
-            "enum"              => Enum,
-            "function"          => Function,
-            "returns"           => Returns,
-            "type"              => Type,
-            "module"            => Module,
-            "public"            => Public,
-            "interface"         => Interface,
-            "implementation"    => Implementation,
-        }
-    }
-}
+use super::token;
 
 macro_rules! unpacked_debug {
     (
