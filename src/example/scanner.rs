@@ -1,4 +1,4 @@
-use crate::token::{KindOfSet, TokenOfKind};
+use crate::token::*;
 
 use super::token::{self, Token, k};
 
@@ -8,11 +8,9 @@ pub fn scan(source: &str) -> Result<Vec<Token>, Error> {
 
         cursor: 0,
         column: 1,
-        line: 1,
+        line:   1,
 
         token_start: 0,
-        token_line: 1,
-        token_column: 1,
     };
 
     let mut tokens = Vec::with_capacity(source.len());
@@ -21,13 +19,21 @@ pub fn scan(source: &str) -> Result<Vec<Token>, Error> {
         tokens.push(token);
     }
 
+    let eof_start = if tokens.is_empty() {
+        source.len()
+    } else {
+        usize::min(source.len(), tokens.last().unwrap().loc().end)
+    };
+
+    tokens.push(TokenOfKind { kind: EOF, loc: eof_start..source.len() }.into());
+
     return Ok(tokens);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     UnexpectedChar {
-        found: Option<char>,
+        found:    Option<char>,
         expected: Vec<char>,
     },
     MissingTagName,
@@ -38,11 +44,9 @@ struct TokenIterator<'source> {
 
     cursor: usize,
     column: usize,
-    line: usize,
+    line:   usize,
 
     token_start: usize,
-    token_line: usize,
-    token_column: usize,
 }
 
 impl<'source> TokenIterator<'source> {
@@ -74,7 +78,7 @@ impl<'source> TokenIterator<'source> {
 
     fn take(&mut self, expected: u8) -> Result<(), Error> {
         let char = self.take_any().ok_or_else(|| Error::UnexpectedChar {
-            found: None,
+            found:    None,
             expected: vec![expected as char],
         })?;
 
@@ -82,7 +86,7 @@ impl<'source> TokenIterator<'source> {
             Ok(())
         } else {
             Err(Error::UnexpectedChar {
-                found: Some(char as char),
+                found:    Some(char as char),
                 expected: vec![expected as char],
             })
         }
@@ -124,8 +128,6 @@ impl<'source> TokenIterator<'source> {
 
     fn start_new_token(&mut self) {
         self.token_start = self.cursor;
-        self.token_line = self.line;
-        self.token_column = self.column;
     }
 
     fn token_slice(&self) -> &[u8] {
@@ -133,15 +135,7 @@ impl<'source> TokenIterator<'source> {
     }
 
     fn token<K: KindOfSet<token::Set>>(&self, kind: K) -> Token {
-        K::to_token(TokenOfKind {
-            kind,
-            loc: crate::token::Loc {
-                start: self.token_start,
-                end: self.cursor,
-                line: self.token_line,
-                column: self.token_column,
-            },
-        })
+        K::to_token(TokenOfKind { kind, loc: self.token_start..self.cursor })
     }
 
     fn keyword(&self) -> Option<Token> {

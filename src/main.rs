@@ -6,6 +6,7 @@
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(slice_as_array)]
 #![feature(try_blocks)]
+#![feature(stmt_expr_attributes)]
 
 pub mod parser;
 pub mod separated;

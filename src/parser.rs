@@ -5,7 +5,7 @@ use crate::token::*;
 
 pub fn parse<Tok: TokenSet, P: Parse<Tok>>(tokens: &[Tok::Token]) -> Result<P, ParseError<Tok>> {
     let mut parser = Parser::new(tokens);
-    parser.parse::<P>()
+    P::parse(&mut parser, Follow::new(vec![Tok::EOF]))
 }
 
 pub struct Parser<'tok, Tok: TokenSet> {
@@ -17,26 +17,58 @@ pub struct Parser<'tok, Tok: TokenSet> {
 pub enum ParseError<Tok: TokenSet> {
     UnexpectedToken {
         expected: Vec<Tok::Kind>,
-        got: Option<Tok::Token>,
+        found:    Option<Tok::Token>,
     },
+}
+
+impl<Tok: TokenSet> ParseError<Tok> {
+    pub fn pretty(self, source: &str) -> String {
+        use annotate_snippets::*;
+
+        let report = match self {
+            crate::parser::ParseError::UnexpectedToken { expected, found } => {
+                let expected = if expected.len() == 1 {
+                    format!("{:?}", expected[0].to_string())
+                } else {
+                    let heads = expected
+                        .iter()
+                        .dropping_back(1)
+                        .map(|k| format!("{:?}", k.to_string()))
+                        .join(", ");
+                    let tail = format!("{:?}", expected.last().unwrap().to_string());
+                    format!("{} or {}", heads, tail)
+                };
+
+                let span = found
+                    .as_ref()
+                    .map(|token| token.loc())
+                    .unwrap_or(source.len()..source.len());
+
+                let found = match found {
+                    None => "end of input".to_string(),
+                    Some(found) if found.loc().is_empty() => "end of input".to_string(),
+                    Some(found) => format!("`{}`", found.to_source_string(source)),
+                };
+
+                let title = format!("expected {expected}, found {found}");
+
+                let annotation = AnnotationKind::Primary.span(span).highlight_source(true);
+
+                Level::ERROR
+                    .primary_title(title)
+                    .element(Snippet::source(source).annotation(annotation))
+            }
+        };
+
+        let renderer = Renderer::styled().decor_style(renderer::DecorStyle::Unicode);
+
+        renderer.render(&[report])
+    }
 }
 
 impl<'tok, Tok: TokenSet> Parser<'tok, Tok> {
     pub fn new(tokens: &'tok [Tok::Token]) -> Self {
         Self { tokens, cursor: 0 }
-    }
-
-    pub fn parse<P: Parse<Tok>>(&mut self) -> Result<P, ParseError<Tok>> {
-        let result = P::parse(self)?;
-
-        if self.cursor < self.tokens.len() {
-            return Err(ParseError::UnexpectedToken {
-                expected: vec![],
-                got: Some(self.tokens[self.cursor].clone()),
-            });
-        }
-
-        return Ok(result);
     }
 
     pub fn peek_some(&self) -> Option<&'tok Tok::Token> {
@@ -49,7 +81,7 @@ impl<'tok, Tok: TokenSet> Parser<'tok, Tok> {
 
     pub fn assert<K: KindOfSet<Tok>>(&self) -> Result<&'tok TokenOfKind<K>, ParseError<Tok>> {
         if self.cursor >= self.tokens.len() {
-            return Err(ParseError::UnexpectedToken { expected: vec![K::KIND], got: None });
+            return Err(ParseError::UnexpectedToken { expected: vec![K::KIND], found: None });
         }
 
         let current = &self.tokens[self.cursor];
@@ -59,7 +91,7 @@ impl<'tok, Tok: TokenSet> Parser<'tok, Tok> {
 
         return Err(ParseError::UnexpectedToken {
             expected: vec![K::KIND],
-            got: Some(current.clone()),
+            found:    Some(current.clone()),
         });
     }
 
@@ -79,7 +111,7 @@ impl<'tok, Tok: TokenSet> Parser<'tok, Tok> {
 
     pub fn assert_one_of(&self, kinds: &[Tok::Kind]) -> Result<&'tok Tok::Token, ParseError<Tok>> {
         if self.cursor >= self.tokens.len() {
-            return Err(ParseError::UnexpectedToken { expected: kinds.to_vec(), got: None });
+            return Err(ParseError::UnexpectedToken { expected: kinds.to_vec(), found: None });
         }
 
         let current = &self.tokens[self.cursor];
@@ -90,7 +122,7 @@ impl<'tok, Tok: TokenSet> Parser<'tok, Tok> {
 
         return Err(ParseError::UnexpectedToken {
             expected: kinds.to_vec(),
-            got: Some(current.clone()),
+            found:    Some(current.clone()),
         });
     }
 
@@ -111,9 +143,11 @@ impl<'tok, Tok: TokenSet> Parser<'tok, Tok> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct First<Tok: TokenSet> {
-    pub tokens: Vec<Tok::Kind>,
+    pub tokens:       Vec<Tok::Kind>,
     pub can_be_empty: bool,
 }
+
+pub type Follow<Tok> = First<Tok>;
 
 impl<Tok: TokenSet> First<Tok> {
     pub fn new(tokens: Vec<Tok::Kind>) -> Self {
@@ -123,7 +157,7 @@ impl<Tok: TokenSet> First<Tok> {
     pub fn follow(mut self, other: impl FnOnce() -> Self) -> Self {
         if self.can_be_empty {
             let other = other();
-            self.tokens.extend(other.tokens.clone());
+            self.tokens.extend(other.tokens);
             self.can_be_empty = other.can_be_empty;
         }
 
@@ -138,7 +172,7 @@ impl<Tok: TokenSet> First<Tok> {
 
 pub trait Parse<Tok: TokenSet>: Sized {
     fn first() -> First<Tok>;
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>>;
+    fn parse(parser: &mut Parser<Tok>, follow: Follow<Tok>) -> Result<Self, ParseError<Tok>>;
 }
 
 impl<Tok: TokenSet, K: KindOfSet<Tok>> Parse<Tok> for TokenOfKind<K> {
@@ -146,9 +180,17 @@ impl<Tok: TokenSet, K: KindOfSet<Tok>> Parse<Tok> for TokenOfKind<K> {
         First::new(vec![K::KIND])
     }
 
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>> {
+    fn parse(parser: &mut Parser<Tok>, follow: Follow<Tok>) -> Result<Self, ParseError<Tok>> {
         let token = parser.take::<K>()?;
-        return Ok(token.clone());
+
+        if parser.peek_one_of(follow.tokens.as_slice()).is_some() {
+            return Ok(token.clone());
+        }
+
+        return Err(ParseError::UnexpectedToken {
+            expected: [follow.tokens].concat(),
+            found:    parser.peek_some().cloned(),
+        });
     }
 }
 
@@ -157,30 +199,50 @@ impl<Tok: TokenSet, P: Parse<Tok>> Parse<Tok> for Option<P> {
         P::first().optional()
     }
 
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>> {
-        let node = if parser.peek_one_of(&Self::first().tokens).is_some() {
-            Some(P::parse(parser)?)
-        } else {
-            None
-        };
+    fn parse(parser: &mut Parser<Tok>, follow: Follow<Tok>) -> Result<Self, ParseError<Tok>> {
+        if parser.peek_one_of(&Self::first().tokens).is_some() {
+            return Ok(Some(P::parse(parser, follow)?));
+        }
 
-        return Ok(node);
+        if parser.peek_one_of(&follow.tokens).is_some() {
+            return Ok(None);
+        }
+
+        return Err(ParseError::UnexpectedToken {
+            expected: [Self::first().tokens, follow.tokens].concat(),
+            found:    parser.peek_some().cloned(),
+        });
     }
 }
 
-impl<Tok: TokenSet, P: Parse<Tok>> Parse<Tok> for Vec<P> {
+impl<Tok: TokenSet, P: Parse<Tok>> Parse<Tok> for Vec<P>
+where
+    Tok::Kind: std::fmt::Debug,
+{
     fn first() -> First<Tok> {
         P::first().optional()
     }
 
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>> {
+    fn parse(parser: &mut Parser<Tok>, follow: Follow<Tok>) -> Result<Self, ParseError<Tok>> {
         let mut nodes = Vec::new();
 
-        while parser.peek_one_of(&Self::first().tokens).is_some() {
-            nodes.push(P::parse(parser)?);
+        loop {
+            if parser.peek_one_of(&Self::first().tokens).is_some() {
+                nodes.push(P::parse(parser, Self::first().follow(|| follow.clone()))?);
+                continue;
+            }
+
+            if parser.peek_one_of(&follow.tokens).is_some() {
+                return Ok(nodes);
+            }
+
+            break;
         }
 
-        return Ok(nodes);
+        return Err(ParseError::UnexpectedToken {
+            expected: [Self::first().tokens, follow.tokens].concat(),
+            found:    parser.peek_some().cloned(),
+        });
     }
 }
 
@@ -189,8 +251,11 @@ impl<Tok: TokenSet, P1: Parse<Tok>, P2: Parse<Tok>> Parse<Tok> for (P1, P2) {
         P1::first().follow(P2::first)
     }
 
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>> {
-        return Ok((P1::parse(parser)?, P2::parse(parser)?));
+    fn parse(parser: &mut Parser<Tok>, follow: Follow<Tok>) -> Result<Self, ParseError<Tok>> {
+        return Ok((
+            P1::parse(parser, P2::first().follow(|| follow.clone()))?,
+            P2::parse(parser, follow)?,
+        ));
     }
 }
 
@@ -199,49 +264,8 @@ impl<Tok: TokenSet, P: Parse<Tok>> Parse<Tok> for Box<P> {
         P::first()
     }
 
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>> {
-        return Ok(Box::new(P::parse(parser)?));
-    }
-}
-
-impl<Tok: TokenSet, P: Parse<Tok>, Sep: KindOfSet<Tok>> Parse<Tok> for NonEmptySeparated<P, Sep> {
-    fn first() -> First<Tok> {
-        P::first()
-    }
-
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>> {
-        let first = P::parse(parser)?;
-        let rest = Option::parse(parser)?;
-        return Ok(NonEmptySeparated { first, rest });
-    }
-}
-
-impl<Tok: TokenSet, P: Parse<Tok>, Sep: KindOfSet<Tok>> Parse<Tok>
-    for NonEmptySeparatedRest<P, Sep>
-{
-    fn first() -> First<Tok> {
-        First::new(vec![Sep::KIND])
-    }
-
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>> {
-        let sep = parser.take::<Sep>()?.clone();
-
-        if parser.peek_one_of(&P::first().tokens).is_some() {
-            let t = P::parse(parser)?;
-
-            if parser.peek::<Sep>().is_some() {
-                let rest = Parse::parse(parser)?;
-
-                return Ok(NonEmptySeparatedRest { sep, rest: Some((t, Some(Box::new(rest)))) });
-            }
-        } else {
-            return Ok(NonEmptySeparatedRest { sep, rest: None });
-        }
-
-        return Err(ParseError::UnexpectedToken {
-            expected: P::first().tokens,
-            got: parser.peek_some().map(Clone::clone),
-        });
+    fn parse(parser: &mut Parser<Tok>, follow: Follow<Tok>) -> Result<Self, ParseError<Tok>> {
+        return Ok(Box::new(P::parse(parser, follow)?));
     }
 }
 
@@ -250,12 +274,62 @@ impl<Tok: TokenSet, P: Parse<Tok>, Sep: KindOfSet<Tok>> Parse<Tok> for Separated
         P::first().optional()
     }
 
-    fn parse(parser: &mut Parser<Tok>) -> Result<Self, ParseError<Tok>> {
+    fn parse(parser: &mut Parser<Tok>, follow: Follow<Tok>) -> Result<Self, ParseError<Tok>> {
         if parser.peek_one_of(&Self::first().tokens).is_some() {
-            return Ok(Separated::NonEmpty(Parse::parse(parser)?));
+            return Ok(Separated::NonEmpty(Parse::parse(parser, follow)?));
         }
 
-        return Ok(Separated::Empty);
+        if parser.peek_one_of(&follow.tokens).is_some() {
+            return Ok(Separated::Empty);
+        }
+
+        return Err(ParseError::UnexpectedToken {
+            expected: [Self::first().tokens, follow.tokens].concat(),
+            found:    parser.peek_some().cloned(),
+        });
+    }
+}
+
+impl<Tok: TokenSet, P: Parse<Tok>, Sep: KindOfSet<Tok>> Parse<Tok> for NonEmptySeparated<P, Sep> {
+    fn first() -> First<Tok> {
+        P::first()
+    }
+
+    fn parse(parser: &mut Parser<Tok>, follow: Follow<Tok>) -> Result<Self, ParseError<Tok>> {
+        let trailing_comma_follow = Follow::new(vec![Sep::KIND])
+            .optional()
+            .follow(|| follow.clone());
+
+        let first = P::parse(parser, trailing_comma_follow.clone())?;
+
+        let mut trailing = None;
+        let mut rest = Vec::new();
+
+        loop {
+            let sep = Parse::parse(parser, P::first().optional().follow(|| follow.clone()))?;
+
+            let Some(sep) = sep else {
+                break;
+            };
+
+            if parser.peek_one_of(&P::first().tokens).is_none() {
+                trailing = Some(sep);
+                break;
+            }
+
+            let item = P::parse(parser, trailing_comma_follow.clone())?;
+
+            rest.push((sep, item));
+        }
+
+        if parser.peek_one_of(&follow.tokens).is_some() {
+            return Ok(NonEmptySeparated { first, rest, trailing });
+        }
+
+        return Err(ParseError::UnexpectedToken {
+            expected: [Self::first().tokens, follow.tokens].concat(),
+            found:    parser.peek_some().cloned(),
+        });
     }
 }
 
@@ -290,24 +364,20 @@ macro_rules! derive_parse {
                 <$t1>::first() $( .follow( <$tn>::first ) )*
             }
 
-            fn parse(parser: &mut $crate::parser::Parser<$Tok>) -> Result<Self, $crate::parser::ParseError<$Tok>> {
-                derive_parse! { field parser [ $i1 : $t1, $( $in : $tn, )* ] }
-
-                return Ok(Self {
-                    $i1,
-                    $( $in, )*
-                });
+            fn parse(parser: &mut $crate::parser::Parser<$Tok>, follow: $crate::parser::Follow<$Tok>) -> Result<Self, $crate::parser::ParseError<$Tok>> {
+                derive_parse! { field parser follow [ $i1 : $t1, $( $in : $tn, )* ] }
+                return Ok(Self { $i1, $( $in, )* });
             }
         }
     };
 
-    (field $parser:ident [$i1:ident : $t1:ty, $i2:ident : $t2:ty, $( $in:ident : $tn:ty, )*]) => {
-        let $i1 = $crate::parser::Parse::parse($parser)?;
-        derive_parse!(field $parser [ $i2 : $t2, $( $in : $tn, )* ])
+    (field $parser:ident $follow:ident [$i1:ident : $t1:ty, $i2:ident : $t2:ty, $( $in:ident : $tn:ty, )*]) => {
+        let $i1 = $crate::parser::Parse::parse($parser, <$t2>::first() $( .follow(|| <$tn>::first()) )* .follow(|| $follow.clone()) )?;
+        derive_parse!(field $parser $follow [ $i2 : $t2, $( $in : $tn, )* ])
     };
 
-    (field $parser:ident [$i1:ident : $t1:ty,]) => {
-        let $i1 = $crate::parser::Parse::parse($parser)?;
+    (field $parser:ident $follow:ident [$i1:ident : $t1:ty,]) => {
+        let $i1 = $crate::parser::Parse::parse($parser, $follow)?;
     };
 
     (
@@ -335,16 +405,16 @@ macro_rules! derive_parse {
                 $crate::parser::First::new([ $( <$ty>::first().tokens ),* ].concat())
             }
 
-            fn parse(parser: &mut $crate::parser::Parser<$Tok>) -> Result<Self, $crate::parser::ParseError<$Tok>> {
+            fn parse(parser: &mut $crate::parser::Parser<$Tok>, follow: $crate::parser::Follow<$Tok>) -> Result<Self, $crate::parser::ParseError<$Tok>> {
                 $(
                     if parser.peek_one_of(&<$ty>::first().tokens).is_some() {
-                        return Ok($name::$arm($crate::parser::Parse::parse(parser)?));
+                        return Ok($name::$arm($crate::parser::Parse::parse(parser, follow)?));
                     }
                 )*
 
                 return Err($crate::parser::ParseError::UnexpectedToken {
                     expected: Self::first().tokens.clone(),
-                    got: parser.peek_some().map(Clone::clone),
+                    found: parser.peek_some().map(Clone::clone),
                 });
             }
         }
@@ -375,11 +445,11 @@ mod tests {
                 pub struct Set;
 
                 pub mod kinds {
-                    "a?" => A,
-                    "b"  => B,
-                    "c?" => C,
-                    "d"  => D,
-                    ";"  => Semicolon,
+                    "a?"  => A,
+                    "b"   => B,
+                    "c?"  => C,
+                    "d"   => D,
+                    ";"   => Semicolon,
                 }
             }
         }
@@ -394,15 +464,17 @@ mod tests {
             D((Option<T!["c?"]>, T!["d"])),
         }
 
-        assert_matches!(parse(&[t!["a?"], t!["b"]]).unwrap(), S1::B((Some(_), _)));
-        assert_matches!(parse(&[t!["b"]]).unwrap(), S1::B((None, _)));
-        assert_matches!(parse(&[t!["c?"], t!["d"]]).unwrap(), S1::D((Some(_), _)));
-        assert_matches!(parse(&[t!["d"]]).unwrap(), S1::D((None, _)));
+        #[rustfmt::skip] {
+            assert_matches!(parse(&[t!["a?"], t!["b"], t![EOF]]).unwrap(),S1::B((Some(_), _)));
+            assert_matches!(parse(&[t!["b"], t![EOF]]).unwrap(), S1::B((None, _)));
+            assert_matches!(parse(&[t!["c?"], t!["d"], t![EOF]]).unwrap(), S1::D((Some(_), _)));
+            assert_matches!(parse(&[t!["d"], t![EOF]]).unwrap(), S1::D((None, _)));
 
-        assert!(parse::<_, S1>(&[t!["a?"]]).is_err());
-        assert!(parse::<_, S1>(&[t!["c?"]]).is_err());
-        assert!(parse::<_, S1>(&[t!["a?"], t!["d"]]).is_err());
-        assert!(parse::<_, S1>(&[t!["c?"], t!["b"]]).is_err());
+            assert!(parse::<_, S1>(&[t!["a?"], t![EOF]]).is_err());
+            assert!(parse::<_, S1>(&[t!["c?"], t![EOF]]).is_err());
+            assert!(parse::<_, S1>(&[t!["a?"], t!["d"], t![EOF]]).is_err());
+            assert!(parse::<_, S1>(&[t!["c?"], t!["b"], t![EOF]]).is_err());
+        }
 
         #[derive(Debug)]
         #[apply(derive_parse)]
@@ -413,11 +485,11 @@ mod tests {
             pub e: Option<T![";"]>,
         }
 
-        assert_matches!(parse(&[t!["b"], t!["b"]]).unwrap(), S2 { b, d, e: None } if b.len() == 2 && d.len() == 0);
-        assert_matches!(parse(&[t!["b"], t!["d"]]).unwrap(), S2 { b, d, e: None } if b.len() == 1 && d.len() == 1);
-        assert_matches!(parse(&[t!["d"], t!["d"]]).unwrap(), S2 { b, d, e: None } if b.len() == 0 && d.len() == 2);
-        assert_matches!(parse(&[t!["b"], t!["b"], t![";"]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 2 && d.len() == 0);
-        assert_matches!(parse(&[t!["b"], t!["d"], t![";"]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 1 && d.len() == 1);
-        assert_matches!(parse(&[t!["d"], t!["d"], t![";"]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 0 && d.len() == 2);
+        assert_matches!(parse(&[t!["b"], t!["b"], t![EOF]]).unwrap(), S2 { b, d, e: None } if b.len() == 2 && d.len() == 0);
+        assert_matches!(parse(&[t!["b"], t!["d"], t![EOF]]).unwrap(), S2 { b, d, e: None } if b.len() == 1 && d.len() == 1);
+        assert_matches!(parse(&[t!["d"], t!["d"], t![EOF]]).unwrap(), S2 { b, d, e: None } if b.len() == 0 && d.len() == 2);
+        assert_matches!(parse(&[t!["b"], t!["b"], t![";"], t![EOF]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 2 && d.len() == 0);
+        assert_matches!(parse(&[t!["b"], t!["d"], t![";"], t![EOF]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 1 && d.len() == 1);
+        assert_matches!(parse(&[t!["d"], t!["d"], t![";"], t![EOF]]).unwrap(), S2 { b, d, e: Some(_) } if b.len() == 0 && d.len() == 2);
     }
 }
