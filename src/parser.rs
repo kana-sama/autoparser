@@ -345,10 +345,11 @@ macro_rules! derive_parse {
         $vis:vis
         struct $name:ident {
             $( #[$_2:meta] )*
-            pub $i1:ident : $t1:ty,
+            $v1:vis $i1:ident : $t1:ty,
             $(
                 $( #[$_4:meta] )*
-                pub $in:ident : $tn:ty,
+                $vn:vis
+                $in:ident : $tn:ty,
             )*
         }
     ) => {
@@ -356,10 +357,10 @@ macro_rules! derive_parse {
         $vis
         struct $name {
             $( #[$_2] )*
-            pub $i1 : $t1,
+            $v1 $i1 : $t1,
             $(
                 $( #[$_4] )*
-                pub $in : $tn,
+                $vn $in : $tn,
             )*
         }
 
