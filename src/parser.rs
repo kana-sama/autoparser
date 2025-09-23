@@ -52,17 +52,21 @@ impl<Tok: TokenSet> ParseError<Tok> {
 
                 let title = format!("expected {expected}, found {found}");
 
-                let annotation = AnnotationKind::Primary.span(span).highlight_source(true);
+                let annotation = AnnotationKind::Primary
+                    .span(span.clone())
+                    .highlight_source(true);
 
-                Level::ERROR
-                    .primary_title(title)
-                    .element(Snippet::source(source).annotation(annotation))
+                let prev_line_start = source[..span.start].rfind('\n').map_or(0, |i| i - 1);
+
+                Level::ERROR.primary_title(title).element(
+                    Snippet::source(source)
+                        .annotation(AnnotationKind::Visible.span(prev_line_start..span.start))
+                        .annotation(annotation),
+                )
             }
         };
 
-        let renderer = Renderer::styled().decor_style(renderer::DecorStyle::Unicode);
-
-        renderer.render(&[report])
+        Renderer::styled().render(&[report])
     }
 }
 

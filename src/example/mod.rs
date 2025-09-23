@@ -46,6 +46,7 @@ mod tests {
     #[test]
     fn test_parse() {
         use crate::parser::parse;
+        use syntax::*;
 
         let source = r#"
             begin
@@ -55,7 +56,8 @@ mod tests {
         "#;
 
         let tokens = scan(source).unwrap();
-        let expr: syntax::Expr = parse(&tokens).unwrap();
+        let expr: Expr = parse(&tokens).unwrap();
+
         dbg!(expr);
     }
 
@@ -67,7 +69,7 @@ mod tests {
             begin
                 foo;
                 let q  Bar = #some-tag( #true, bar, );
-            end
+            // end
         "#;
 
         let tokens = scan(source).unwrap();
